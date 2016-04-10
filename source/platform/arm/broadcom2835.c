@@ -37,7 +37,9 @@ Result PowerOnUsb() {
 	do {
 		while (mailbox[6] & 0x40000000);		
 	} while (((result = mailbox[0]) & 0xf) != 0);
-	return result == 0x80 ? OK : ErrorDevice;
+	/*  Modified by Yeqing */
+    return OK;
+    //return result == 0x80 ? OK : ErrorDevice;
 }
 
 #endif

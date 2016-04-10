@@ -477,6 +477,10 @@ Result HubAttach(struct UsbDevice *device, u32 interfaceNumber) {
 	case Individual:
 		LOG_DEBUG("HUB: Hub power: Individual.\n");
 		break;
+    /* Add by Yeqing */
+    case 2:
+		LOG_DEBUG("HUB: TOS QEMU KEYBOARD Power Type 2.\n");
+		break;
 	default:
 		LOGF("HUB: Unknown hub power type %d on %s. Driver incompatible.\n", hubDescriptor->Attributes.PowerSwitchingMode, UsbGetDescription(device));
 		HubDeallocate(device);
