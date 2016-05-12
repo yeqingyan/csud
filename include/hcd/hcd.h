@@ -73,6 +73,10 @@ Result HcdSumbitControlMessage(struct UsbDevice *device,
 	struct UsbPipeAddress pipe, void* buffer, u32 bufferLength,
 	struct UsbDeviceRequest *request);
 
+/* Added by Yeqing for bulk transfer */
+Result HcdSumbitBulkMessage(struct UsbDevice *device,
+	struct UsbPipeAddress pipe, void* buffer, u32 bufferLength);
+
 #include "dwc/designware20.h"
 
 #ifdef __cplusplus

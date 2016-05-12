@@ -1,1 +1,1 @@
-make driver CONFIG=DEBUG TYPE=LOWLEVEL TARGET=RPI GNU=arm-none-eabi-
+make driver CONFIG=FINAL TYPE=LOWLEVEL TARGET=RPI GNU=arm-none-eabi- LIB_SERIAL=1

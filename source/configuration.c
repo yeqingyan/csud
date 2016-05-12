@@ -39,6 +39,9 @@ void KbdLoad();
 #ifdef LIB_MOUSE
 void MouseLoad();
 #endif
+#ifdef LIB_SERIAL
+void SerialLoad();
+#endif
 
 void ConfigurationLoad() {
 	// Call each libraries load method here. Watch out for the order, load more
@@ -65,5 +68,8 @@ void ConfigurationLoad() {
 #endif
 #ifdef LIB_MOUSE
 	MouseLoad();
+#endif
+#ifdef LIB_SERIAL
+	SerialLoad();
 #endif
 }

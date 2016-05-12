@@ -377,7 +377,7 @@ headerLoopBreak:
 	if ((result = UsbSetConfiguration(device, configuration)) != OK) {		
 		goto deallocate;
 	}
-	LOG_DEBUGF("USBD: %s configuration %d. Class %d, subclass %d.\n", UsbGetDescription(device), configuration, device->Interfaces[0].Class, device->Interfaces[0].SubClass);
+	LOGF("USBD: %s configuration %d. Interface class %d, subclass %d.\n", UsbGetDescription(device), configuration, device->Interfaces[0].Class, device->Interfaces[0].SubClass);
 
 	device->FullConfiguration = fullDescriptor;
 	 
@@ -516,7 +516,7 @@ Result UsbAttachDevice(struct UsbDevice *device) {
 		return result;
 	}
 
-	LOG_DEBUGF("USBD: Attach Device %s. Address:%d Class:%d Subclass:%d USB:%x.%x. %d configurations, %d interfaces.\n",
+	LOGF("USBD: Attach Device %s. Address:%d Class:%d Subclass:%d USB:%x.%x. %d configurations, %d interfaces.\n",
 		UsbGetDescription(device), address, device->Descriptor.Class, device->Descriptor.SubClass, device->Descriptor.UsbVersion >> 8, 
 		(device->Descriptor.UsbVersion >> 4) & 0xf, device->Descriptor.ConfigurationCount, device->Configuration.InterfaceCount);
 		
@@ -563,15 +563,18 @@ Result UsbAttachDevice(struct UsbDevice *device) {
 		}
 	}
 	
-	if (buffer != NULL) { MemoryDeallocate(buffer); buffer = NULL; }
-					
+	if (buffer != NULL) { MemoryDeallocate(buffer); buffer = NULL; }	
+	LOGF("USBD:TOS Attach device %d\n", device->Interfaces[0].Class);					
 	if (device->Interfaces[0].Class < InterfaceClassAttachCount &&
 		InterfaceClassAttach[device->Interfaces[0].Class] != NULL) {		
 		if ((result = InterfaceClassAttach[device->Interfaces[0].Class](device, 0)) != OK) {
 			LOGF("USBD: Could not start the driver for %s.\n", UsbGetDescription(device));
 		}
+	} else if (device->Interfaces[0].Class == 255){ 	// Added by Yeqing for Qemu USB-Serial Simulation
+		if ((result = InterfaceClassAttach[0](device, 0)) != OK) {
+			LOGF("USBD: Could not start the driver for %s.\n", UsbGetDescription(device));
+		}
 	}
-
 	return OK;
 }
 

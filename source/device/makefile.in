@@ -8,6 +8,15 @@ $(BUILD)hub.c.o: $(DIR)hub.c $(INCDIR)device/hub.h $(INCDIR)hcd/hcd.h $(INCDIR)p
 	$(GCC) $< -o $@
 endif
 
+ifeq ("$(LIB_SERIAL)", "1")
+CFLAGS += -DLIB_SERIAL
+OBJECTS += $(BUILD)serial.c.o
+
+$(BUILD)serial.c.o: $(DIR)serial.c $(INCDIR)device/serial.h $(INCDIR)device/hub.h $(INCDIR)hcd/hcd.h $(INCDIR)platform/platform.h $(INCDIR)usbd/device.h $(INCDIR)usbd/devicerequest.h $(INCDIR)usbd/descriptors.h $(INCDIR)usbd/pipe.h $(INCDIR)usbd/usbd.h
+	$(GCC) $< -o $@
+endif
+
 ifeq ("$(LIB_HID)", "1")
 include $(DIR)hid/makefile.in
 endif
+

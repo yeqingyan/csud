@@ -262,6 +262,7 @@ Result HcdPrepareChannel(struct UsbDevice *device, u8 channel,
 		Host->Channel[channel].TransferSize.PacketCount = (length + Host->Channel[channel].Characteristic.MaximumPacketSize -  1) / Host->Channel[channel].Characteristic.MaximumPacketSize;
 	if (Host->Channel[channel].TransferSize.PacketCount == 0)
 		Host->Channel[channel].TransferSize.PacketCount = 1;
+	//LOGF("TOS maximumpacketsize %d, packet count %d\n", Host->Channel[channel].Characteristic.MaximumPacketSize, Host->Channel[channel].TransferSize.PacketCount);		
 	Host->Channel[channel].TransferSize.PacketId = type;
 	WriteThroughReg(&Host->Channel[channel].TransferSize);
 	
@@ -495,6 +496,263 @@ retry:
 
 	return OK;
 }
+
+// Added by Yeqing for Bulk transfers
+Result HcdBulkChannelSendWaitOne(struct UsbDevice *device, 
+	struct UsbPipeAddress *pipe, u8 channel, void* buffer, u32 bufferLength, u32 bufferOffset) {
+	Result result;
+	u32 timeout, tries, globalTries, actualTries;
+	
+	for (globalTries = 0, actualTries = 0; globalTries < 3 && actualTries < 100; globalTries++, actualTries++) {
+		SetReg(&Host->Channel[channel].Interrupt);
+		WriteThroughReg(&Host->Channel[channel].Interrupt);
+		ReadBackReg(&Host->Channel[channel].TransferSize);
+		ReadBackReg(&Host->Channel[channel].SplitControl);
+				
+		HcdTransmitChannel(channel, (u8*)buffer + bufferOffset);
+		
+		timeout = 0;
+		do {
+			if (timeout++ == RequestTimeout) {
+				LOGF("HCD: Request to %s has timed out.\n", UsbGetDescription(device));
+				device->Error = ConnectionError;
+				return ErrorTimeout;
+			}
+			ReadBackReg(&Host->Channel[channel].Interrupt);
+			if (!Host->Channel[channel].Interrupt.Halt) MicroDelay(10);
+			else break;
+		} while (true);
+		ReadBackReg(&Host->Channel[channel].TransferSize);
+		
+		if (Host->Channel[channel].SplitControl.SplitEnable) {
+			//LOGF("TOS YYQ: Interrupt %d Acknowledgement: %d NegativeAcknowledgement %d\n", Host->Channel[channel].Interrupt, Host->Channel[channel].Interrupt.Acknowledgement, Host->Channel[channel].Interrupt.NegativeAcknowledgement);
+			if(pipe->Direction == In) { 
+				//LOGF("HCD: YYQ Got buffer %s\n", buffer);
+				//while(1){};
+			}
+
+			if (Host->Channel[channel].Interrupt.Acknowledgement) {
+				//LOG("TOS YYQ: Interrupt Acknowledgement\n");
+				for (tries = 0; tries < 3; tries++) {
+					SetReg(&Host->Channel[channel].Interrupt);
+					WriteThroughReg(&Host->Channel[channel].Interrupt);
+
+					ReadBackReg(&Host->Channel[channel].SplitControl);
+					Host->Channel[channel].SplitControl.CompleteSplit = true;
+					WriteThroughReg(&Host->Channel[channel].SplitControl);
+					
+					Host->Channel[channel].Characteristic.Enable = true;
+					Host->Channel[channel].Characteristic.Disable = false;
+					WriteThroughReg(&Host->Channel[channel].Characteristic);
+
+					timeout = 0;
+					do {
+						if (timeout++ == RequestTimeout) {
+							LOGF("USB-BULK: Request split completion to %s has timed out.\n", UsbGetDescription(device));
+							device->Error = ConnectionError;
+							return ErrorTimeout;
+						}
+						ReadBackReg(&Host->Channel[channel].Interrupt);
+						if (!Host->Channel[channel].Interrupt.Halt) MicroDelay(100);
+						else break;
+					} while (true);
+					if (!Host->Channel[channel].Interrupt.NotYet) break;
+				}
+
+				if (tries == 3) {
+					MicroDelay(25000);
+					continue;
+				} else if (Host->Channel[channel].Interrupt.NegativeAcknowledgement) {
+					globalTries--;
+					MicroDelay(25000);
+					continue;
+				} else if (Host->Channel[channel].Interrupt.TransactionError) {
+					MicroDelay(25000);
+					continue;
+				}
+	
+				if ((result = HcdChannelInterruptToError(device, Host->Channel[channel].Interrupt, false)) != OK) {
+					LOGF("USB-BULK Error: Request split completion to %s failed.\n", UsbGetDescription(device));
+					return result;
+				}
+			} else if (Host->Channel[channel].Interrupt.NegativeAcknowledgement) {
+				globalTries--;
+				MicroDelay(25000);
+				continue;
+			} else if (Host->Channel[channel].Interrupt.TransactionError) {
+				MicroDelay(25000);
+				continue;
+			}				
+		} else {		
+			LOG("TOS: Not SplitEnable\n");		
+			if ((result = HcdChannelInterruptToError(device, Host->Channel[channel].Interrupt, !Host->Channel[channel].SplitControl.SplitEnable)) != OK) {
+				LOGF("USB-BULK: Request to %s failed.\n", UsbGetDescription(device));
+				return ErrorRetry;
+			}
+		}
+		break;
+	}
+
+	if (globalTries == 3 || actualTries == 10) {
+		LOGF("USB-BULK: Request to %s has failed 3 times.\n", UsbGetDescription(device));
+		if ((result = HcdChannelInterruptToError(device, Host->Channel[channel].Interrupt, !Host->Channel[channel].SplitControl.SplitEnable)) != OK) {
+			LOGF("USB-BULK: Request to %s failed.\n", UsbGetDescription(device));
+			return result;
+		}
+		device->Error = ConnectionError;
+		return ErrorTimeout;
+	}
+
+	return OK;
+}
+
+Result HcdBulkChannelSendWait(struct UsbDevice *device, 
+	struct UsbPipeAddress *pipe, u8 channel, void* buffer, u32 bufferLength, 
+	enum PacketId packetId) {
+	Result result;
+	u32 packets, transfer, tries;
+	
+	tries = 0;
+retry:
+	if (tries++ == 3) {
+		LOGF("HCD: Failed to send to %s after 3 attempts.\n", UsbGetDescription(device));
+		return ErrorTimeout;
+	} 
+
+	if ((result = HcdPrepareChannel(device, channel, bufferLength, packetId, pipe)) != OK) {		
+		device->Error = ConnectionError;
+		LOGF("HCD: Could not prepare data channel to %s.\n", UsbGetDescription(device));
+		return result;
+	}
+		
+	transfer = 0;
+	do {
+		packets = Host->Channel[channel].TransferSize.PacketCount;
+		if ((result = HcdBulkChannelSendWaitOne(device, pipe, channel, buffer, bufferLength, transfer)) != OK) {
+			if (result == ErrorRetry) goto retry;
+			return result;
+		}
+
+		ReadBackReg(&Host->Channel[channel].TransferSize);		
+		transfer = bufferLength - Host->Channel[channel].TransferSize.TransferSize;
+		//LOGF("Packets: %d, packet count: %d\n", packets, Host->Channel[channel].TransferSize.PacketCount);
+		
+		if (packets == Host->Channel[channel].TransferSize.PacketCount) break;
+		/* Add by Yeqing Yan, if we got the string, quit. TODO */
+		
+		/*
+		if (pipe->Direction == In) {
+			while(1){};
+		}
+		if (packets > Host->Channel[channel].TransferSize.PacketCount && pipe->Direction == In) {
+			break;
+		}*/
+	} while (Host->Channel[channel].TransferSize.PacketCount > 0);
+
+	if (packets == Host->Channel[channel].TransferSize.PacketCount) {
+		device->Error = ConnectionError;
+		LOGF("HCD: Transfer to %s got stuck.\n", UsbGetDescription(device));
+		return ErrorDevice;
+	}	
+	if (tries > 1) {
+		LOGF("HCD: Transfer to %s succeeded on attempt %d/3.\n", UsbGetDescription(device), tries);
+	}
+
+	return OK;
+}
+ 
+Result HcdSumbitBulkMessage(struct UsbDevice *device,
+	struct UsbPipeAddress pipe, void* buffer, u32 bufferLength) {
+	Result result;
+	struct UsbPipeAddress tempPipe;
+
+	//if (pipe.Device == RootHubDeviceNumber) {
+	//	return HcdProcessRootHubMessage(device, pipe, buffer, bufferLength, request);
+	//}
+
+	device->Error = Processing;
+	device->LastTransfer = 0;
+			
+	// Setup
+	/*
+	tempPipe.Speed = pipe.Speed;
+	tempPipe.Device = pipe.Device;
+	tempPipe.EndPoint = pipe.EndPoint;
+	tempPipe.MaxSize = pipe.MaxSize;
+	tempPipe.Type = Bulk;
+	tempPipe.Direction = Out;
+	
+	if ((result = HcdBulkChannelSendWait(device, &tempPipe, 0, buffer, 8, Setup)) != OK) {		
+		LOGF("HCD: Could not send SETUP to %s.\n", UsbGetDescription(device));
+		return OK;
+	}
+	LOGF("SETUP done!", result);
+	*/	
+	// Data
+	if (buffer != NULL) {
+		if (pipe.Direction == Out) {
+			MemoryCopy(databuffer, buffer, bufferLength);
+		}
+		tempPipe.Speed = pipe.Speed;
+		tempPipe.Device = pipe.Device;
+		tempPipe.EndPoint = pipe.EndPoint;
+		tempPipe.MaxSize = pipe.MaxSize;
+		tempPipe.Type = Bulk;
+		tempPipe.Direction = pipe.Direction;
+		
+		if ((result = HcdBulkChannelSendWait(device, &tempPipe, 0, databuffer, bufferLength, Data0)) != OK) {	
+			LOGF("HCD: Could not send DATA to %s.\n", UsbGetDescription(device));
+			return OK;
+		}						
+		ReadBackReg(&Host->Channel[0].TransferSize);
+		if (pipe.Direction == In) {
+			if (Host->Channel[0].TransferSize.TransferSize <= bufferLength) {
+				device->LastTransfer = bufferLength - Host->Channel[0].TransferSize.TransferSize;
+			} else{
+				LOGF("HCD: Weird transfer.. %d/%d bytes received.\n", Host->Channel[0].TransferSize.TransferSize, bufferLength);
+				LOGF("HCD: Message %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x ...\n", 
+					((u8*)databuffer)[0x0],((u8*)databuffer)[0x1],((u8*)databuffer)[0x2],((u8*)databuffer)[0x3],
+					((u8*)databuffer)[0x4],((u8*)databuffer)[0x5],((u8*)databuffer)[0x6],((u8*)databuffer)[0x7],
+					((u8*)databuffer)[0x8],((u8*)databuffer)[0x9],((u8*)databuffer)[0xa],((u8*)databuffer)[0xb],
+					((u8*)databuffer)[0xc],((u8*)databuffer)[0xd],((u8*)databuffer)[0xe],((u8*)databuffer)[0xf]);
+				device->LastTransfer = bufferLength;
+			}
+			/*
+			LOGF("HCD: TOS LastTransfer %d, %s.\n", device->LastTransfer, databuffer);
+			for (int i = 0; i < device->LastTransfer; i++){
+				LOGF("%x ", *((u8*)databuffer+i));
+			}
+			LOG("\n");*/
+			MemoryCopy(buffer, databuffer, device->LastTransfer);
+		}
+		else {
+			device->LastTransfer = bufferLength;
+		}
+	}
+	// Status
+	/*
+	tempPipe.Speed = pipe.Speed;
+	tempPipe.Device = pipe.Device;
+	tempPipe.EndPoint = pipe.EndPoint;
+	tempPipe.MaxSize = pipe.MaxSize;
+	tempPipe.Type = Bulk;
+	tempPipe.Direction = ((bufferLength == 0) || pipe.Direction == Out) ? In : Out;
+	
+	if ((result = HcdBulkChannelSendWait(device, &tempPipe, 0, databuffer, 0 , Data0)) != OK) {		
+		LOGF("HCD: Could not send STATUS to %s.\n", UsbGetDescription(device));
+		return OK;
+	}
+
+	ReadBackReg(&Host->Channel[0].TransferSize);
+	if (Host->Channel[0].TransferSize.TransferSize != 0)
+		LOG_DEBUGF("HCD: Warning non zero status transfer! %d.\n", Host->Channel[0].TransferSize.TransferSize);
+
+	device->Error = NoError;
+	LOGF("Status done!", result);
+	while(1){};*/
+	return OK;
+}
+// Added by Yeqing End
 
 Result HcdSumbitControlMessage(struct UsbDevice *device, 
 	struct UsbPipeAddress pipe, void* buffer, u32 bufferLength,
