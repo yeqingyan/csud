@@ -570,7 +570,8 @@ Result UsbAttachDevice(struct UsbDevice *device) {
 		if ((result = InterfaceClassAttach[device->Interfaces[0].Class](device, 0)) != OK) {
 			LOGF("USBD: Could not start the driver for %s.\n", UsbGetDescription(device));
 		}
-	} else if (device->Interfaces[0].Class == 255){ 	// Added by Yeqing for Qemu USB-Serial Simulation
+	} else if (device->Interfaces[0].Class == 255 && device->Descriptor.VendorId == 0x067b &&
+                    device->Descriptor.ProductId == 0x2303){ 	// Added by Yeqing for Qemu USB-Serial Simulation
 		if ((result = InterfaceClassAttach[0](device, 0)) != OK) {
 			LOGF("USBD: Could not start the driver for %s.\n", UsbGetDescription(device));
 		}
