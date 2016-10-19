@@ -91,8 +91,10 @@ Result SerialAttach(struct UsbDevice *device, u32 interface) {
             .Value = 0,
             .Length = 0,
         },
-        SerialMessageTimeout)) != OK) 
+        SerialMessageTimeout)) != OK) {
+        LOG("SERIAL attach failed!\n");    
         return result;
+    }
     
     LOG("SERIAL attach done!\n");
     return OK;
@@ -120,7 +122,7 @@ int SendToUSB(char *buf, int bufSize) {
 int RecvFromUSB(const char *buf, int bufSize) {
     Result result;
     struct UsbDevice *device = serialDevice;
-    LOG("RecvFromUSB Called\n");
+    //LOG("RecvFromUSB Called\n");
     result = HcdSumbitBulkMessage(
         device, 		
         (struct UsbPipeAddress) { 
