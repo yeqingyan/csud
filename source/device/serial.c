@@ -28,7 +28,6 @@ void SerialLoad() {
 }
 
 Result SerialAttach(struct UsbDevice *device, u32 interface) {
-    Result result;
     int endpoint_count = device->Interfaces[interface].EndpointCount;
     serial_interface = interface;
     // LOGF("Found %d endpoints.\n", endpoint_count);
@@ -50,20 +49,28 @@ Result SerialAttach(struct UsbDevice *device, u32 interface) {
     
     // From Linux kernel drivers/usb/serial/pl2303.c 
     // Reverse engineering code, no document, hope I never need this. 
-    // char vender_buf[1];
-    // pl2303_vendor_read(serial, 0x8484, vender_buf);
-	// pl2303_vendor_write(serial, 0x0404, 0);
-	// pl2303_vendor_read(serial, 0x8484, vender_buf);
-	// pl2303_vendor_read(serial, 0x8383, vender_buf);
-	// pl2303_vendor_read(serial, 0x8484, vender_buf);
-	// pl2303_vendor_write(serial, 0x0404, 1);
-	// pl2303_vendor_read(serial, 0x8484, vender_buf);
-	// pl2303_vendor_read(serial, 0x8383, vender_buf);
-	// pl2303_vendor_write(serial, 0, 1);
-	// pl2303_vendor_write(serial, 1, 0);
+     char vender_buf[1];
+     pl2303_vendor_read(serialDevice, 0x8484, vender_buf);
+	 pl2303_vendor_write(serialDevice, 0x0404, 0);
+	 pl2303_vendor_read(serialDevice, 0x8484, vender_buf);
+	 pl2303_vendor_read(serialDevice, 0x8383, vender_buf);
+	 pl2303_vendor_read(serialDevice, 0x8484, vender_buf);
+	 pl2303_vendor_write(serialDevice, 0x0404, 1);
+	 pl2303_vendor_read(serialDevice, 0x8484, vender_buf);
+	 pl2303_vendor_read(serialDevice, 0x8383, vender_buf);
+	 pl2303_vendor_write(serialDevice, 0, 1);
+	 pl2303_vendor_write(serialDevice, 1, 0);
     
     // Initialise pl2303 
     // From Linux kernel drivers/usb/serial/pl2303.c  
+    
+    //LOG("SERIAL attach done!\n");
+    //return OK;
+
+
+
+
+
     char buf[7];
     buf[0] = 0x30;
     buf[1] = 0x0;
@@ -72,6 +79,7 @@ Result SerialAttach(struct UsbDevice *device, u32 interface) {
     buf[4] = 2;		// line control 2 stop bits
     buf[5] = 0;		// No parity
     buf[6] = 8;		// word length 8 bits
+    Result result;
     if ((result = UsbControlMessage(
         device, 
         (struct UsbPipeAddress) { 
@@ -92,11 +100,10 @@ Result SerialAttach(struct UsbDevice *device, u32 interface) {
             .Length = 0,
         },
         SerialMessageTimeout)) != OK) {
-        LOG("SERIAL attach failed!\n");    
         return result;
     }
     
-    LOG("SERIAL attach done!\n");
+    LOG("SERIAL attach done!!!!\n");
     return OK;
 }
 
@@ -135,7 +142,7 @@ int RecvFromUSB(const char *buf, int bufSize) {
         },
         (void *)buf,
         bufSize);
-    //LOGF("TOS Receive Result = %x\n", result);
+    LOGF("TOS Receive Result = %x\n", result);
     //char  *ptr = buf;
     //ptr += 2;	// Skip 2 serial break bytes from QEMU
     //LOGF("Reply %s\n",ptr);
